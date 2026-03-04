@@ -1,0 +1,249 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Alien Moon Defender</title>
+<style>
+body{
+  margin:0;
+  background:linear-gradient(#001526,#000814);
+  color:#00ffd7;
+  font-family:Impact,Arial Black,sans-serif;
+  text-align:center;
+}
+h1{
+  margin:10px;
+  font-size:36px;
+  text-shadow:0 0 15px #00ffd7;
+}
+canvas{
+  display:block;
+  margin:10px auto;
+  border:3px solid #00ffd7;
+  background:black;
+}
+button{
+  padding:10px 20px;
+  font-size:18px;
+  background:#00ffd7;
+  border:none;
+  border-radius:8px;
+  cursor:pointer;
+}
+</style>
+</head>
+<body>
+
+<h1>ALIEN MOON DEFENDER</h1>
+<button onclick="startGame()">START</button>
+<p>Move: Arrow Keys / WASD | Shoot: SPACEBAR</p>
+<p>Score: <span id="score">0</span> | Level: <span id="level">1</span></p>
+
+<canvas id="game" width="900" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let alien, asteroids, bullets, particles;
+let score=0, level=1, gameRunning=false;
+let keys={};
+
+document.addEventListener("keydown",e=>{
+  keys[e.key.toLowerCase()] = true;
+  if(e.key===" " && gameRunning) shoot();
+});
+document.addEventListener("keyup",e=>{
+  keys[e.key.toLowerCase()] = false;
+});
+
+function startGame(){
+  alien={x:430,y:480,w:40,h:60,speed:5};
+  asteroids=[];
+  bullets=[];
+  particles=[];
+  score=0;
+  level=1;
+  gameRunning=true;
+  document.getElementById("score").textContent=score;
+  document.getElementById("level").textContent=level;
+  requestAnimationFrame(loop);
+}
+
+function shoot(){
+  bullets.push({
+    x:alien.x+alien.w/2-3,
+    y:alien.y,
+    speed:8
+  });
+}
+
+function spawnAsteroid(){
+  let size=30+Math.random()*50;
+  asteroids.push({
+    x:Math.random()*(canvas.width-size),
+    y:-size,
+    size:size,
+    speed:2+Math.random()*2+level*0.5,
+    rotation:Math.random()*6
+  });
+}
+
+function createJetDust(){
+  for(let i=0;i<2;i++){
+    particles.push({
+      x:alien.x+alien.w/2,
+      y:alien.y+alien.h,
+      size:Math.random()*4+2,
+      life:20
+    });
+  }
+}
+
+function drawAlien(){
+  // body
+  ctx.fillStyle="#00ff88";
+  ctx.beginPath();
+  ctx.ellipse(alien.x+20,alien.y+35,20,25,0,0,Math.PI*2);
+  ctx.fill();
+
+  // head
+  ctx.beginPath();
+  ctx.ellipse(alien.x+20,alien.y+15,22,18,0,0,Math.PI*2);
+  ctx.fill();
+
+  // BIG glowing eyes
+  ctx.fillStyle="black";
+  ctx.beginPath();
+  ctx.ellipse(alien.x+12,alien.y+15,8,12,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(alien.x+28,alien.y+15,8,12,0,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle="#00ffd7";
+  ctx.beginPath();
+  ctx.ellipse(alien.x+12,alien.y+12,3,5,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(alien.x+28,alien.y+12,3,5,0,0,Math.PI*2);
+  ctx.fill();
+}
+
+function drawMoon(){
+  ctx.fillStyle="#999";
+  ctx.beginPath();
+  ctx.arc(canvas.width/2,700,350,0,Math.PI*2);
+  ctx.fill();
+
+  // spaced craters
+  ctx.fillStyle="#777";
+  let craterPositions=[150,300,450,600,750];
+  craterPositions.forEach(x=>{
+    ctx.beginPath();
+    ctx.arc(x,550,25,0,Math.PI*2);
+    ctx.fill();
+  });
+}
+
+function loop(){
+  if(!gameRunning) return;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  drawMoon();
+
+  // movement
+  if(keys["arrowleft"]||keys["a"]) alien.x-=alien.speed;
+  if(keys["arrowright"]||keys["d"]) alien.x+=alien.speed;
+  if(keys["arrowup"]||keys["w"]) alien.y-=alien.speed;
+  if(keys["arrowdown"]||keys["s"]) alien.y+=alien.speed;
+
+  alien.x=Math.max(0,Math.min(canvas.width-alien.w,alien.x));
+  alien.y=Math.max(0,Math.min(500-alien.h,alien.y));
+
+  if(keys["arrowleft"]||keys["arrowright"]||keys["arrowup"]||keys["arrowdown"]||
+     keys["a"]||keys["d"]||keys["w"]||keys["s"]){
+       createJetDust();
+  }
+
+  drawAlien();
+
+  // spawn asteroids
+  if(Math.random()<0.02+level*0.005) spawnAsteroid();
+
+  // update asteroids
+  for(let i=asteroids.length-1;i>=0;i--){
+    let a=asteroids[i];
+    a.y+=a.speed;
+
+    ctx.save();
+    ctx.translate(a.x+a.size/2,a.y+a.size/2);
+    ctx.rotate(a.rotation);
+    ctx.fillStyle="#6b4f3b";
+    ctx.beginPath();
+    ctx.arc(0,0,a.size/2,0,Math.PI*2);
+    ctx.fill();
+
+    // craters
+    ctx.fillStyle="#4b3425";
+    ctx.beginPath();
+    ctx.arc(-a.size/6,-a.size/6,8,0,Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(a.size/6,a.size/6,6,0,Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+
+    if(a.y>canvas.height){
+      asteroids.splice(i,1);
+      score++;
+      if(score%20===0){
+        level++;
+        document.getElementById("level").textContent=level;
+      }
+      document.getElementById("score").textContent=score;
+    }
+  }
+
+  // bullets
+  for(let i=bullets.length-1;i>=0;i--){
+    let b=bullets[i];
+    b.y-=b.speed;
+    ctx.fillStyle="#00ffd7";
+    ctx.fillRect(b.x,b.y,6,15);
+
+    for(let j=asteroids.length-1;j>=0;j--){
+      let a=asteroids[j];
+      if(b.x<a.x+a.size &&
+         b.x+6>a.x &&
+         b.y<a.y+a.size &&
+         b.y+15>a.y){
+           asteroids.splice(j,1);
+           bullets.splice(i,1);
+           score+=2;
+           document.getElementById("score").textContent=score;
+           break;
+         }
+    }
+    if(b.y<0) bullets.splice(i,1);
+  }
+
+  // jet dust particles
+  for(let i=particles.length-1;i>=0;i--){
+    let p=particles[i];
+    ctx.fillStyle="rgba(200,200,200,0.5)";
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.size,0,Math.PI*2);
+    ctx.fill();
+    p.y+=2;
+    p.life--;
+    if(p.life<=0) particles.splice(i,1);
+  }
+
+  requestAnimationFrame(loop);
+}
+</script>
+
+</body>
+</html>
