@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Asteroid Dodger</title>
+
+<style>
+body {
+  margin: 0;
+  background: linear-gradient(to bottom, #000814, #001d3d);
+  color: white;
+  text-align: center;
+  font-family: Arial, sans-serif;
+}
+
+h1 {
+  margin-top: 15px;
+}
+
+canvas {
+  background: #0a0a0a;
+  display: block;
+  margin: 20px auto;
+  border: 2px solid white;
+}
+
+button {
+  padding: 10px 20px;
+  font-size: 16px;
+  margin: 10px;
+  cursor: pointer;
+}
+</style>
+
+</head>
+<body>
+
+<h1>Asteroid Dodger</h1>
+<button onclick="startGame()">Start Game</button>
+<p>Use LEFT and RIGHT arrow keys</p>
+<p>Score: <span id="score">0</span></p>
+
+<canvas id="gameCanvas" width="700" height="450"></canvas>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+let player;
+let asteroids;
+let score;
+let gameRunning;
+
+function startGame() {
+  player = {
+    x: 325,
+    y: 410,
+    width: 50,
+    height: 20,
+    speed: 7
+  };
+
+  asteroids = [];
+  score = 0;
+  gameRunning = true;
+  document.getElementById("score").textContent = score;
+
+  requestAnimationFrame(gameLoop);
+}
+
+document.addEventListener("keydown", function(e) {
+  if (!gameRunning) return;
+
+  if (e.key === "ArrowLeft") {
+    player.x -= player.speed * 5;
+  }
+
+  if (e.key === "ArrowRight") {
+    player.x += player.speed * 5;
+  }
+
+  // Keep player inside canvas
+  if (player.x < 0) player.x = 0;
+  if (player.x + player.width > canvas.width)
+    player.x = canvas.width - player.width;
+});
+
+function spawnAsteroid() {
+  let size = 20 + Math.random() * 40;
+  asteroids.push({
+    x: Math.random() * (canvas.width - size),
+    y: -size,
+    size: size,
+    speed: 2 + Math.random() * 4
+  });
+}
+
+function gameLoop() {
+  if (!gameRunning) return;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw Player
+  ctx.fillStyle = "cyan";
+  ctx.fillRect(player.x, player.y, player.width, player.height);
+
+  // Random spawn chance
+  if (Math.random() < 0.03) {
+    spawnAsteroid();
+  }
+
+  // Update and draw asteroids
+  for (let i = asteroids.length - 1; i >= 0; i--) {
+    let a = asteroids[i];
+    a.y += a.speed;
+
+    ctx.fillStyle = "gray";
+    ctx.beginPath();
+    ctx.arc(a.x + a.size/2, a.y + a.size/2, a.size/2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Collision detection
+    if (
+      a.y + a.size > player.y &&
+      a.x < player.x + player.width &&
+      a.x + a.size > player.x
+    ) {
+      alert("Game Over! Final Score: " + score);
+      gameRunning = false;
+      return;
+    }
+
+    // If asteroid passes bottom
+    if (a.y > canvas.height) {
+      asteroids.splice(i, 1);
+      score++;
+      document.getElementById("score").textContent = score;
+    }
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+</script>
+
+</body>
+</html>
