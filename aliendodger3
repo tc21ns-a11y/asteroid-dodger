@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Alien Moon Dodger — Levels & Craters</title>
+<style>
+  :root{
+    --bg1:#001526; --bg2:#000814; --accent:#00ffd7; --moon:#9aa0a6;
+    --hud:#ffea00;
+  }
+  html,body{height:100%;margin:0;font-family:Inter, system-ui, "Segoe UI", Roboto, Arial;}
+  body{display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,var(--bg1),var(--bg2));color:var(--accent);}
+  .wrap{width:min(980px,96vw); max-width:1100px; padding:18px; box-sizing:border-box;}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+  h1{margin:0;color:var(--accent);font-family:Impact, "Arial Black", sans-serif; text-shadow:0 0 12px rgba(0,255,215,0.12); font-size:28px}
+  .hud{display:flex;gap:14px;align-items:center;font-weight:700;color:var(--hud); text-shadow:0 0 8px rgba(255,234,0,0.18)}
+  .btn{background:var(--accent); color:#012; border:0; padding:10px 14px; border-radius:10px; font-weight:800; cursor:pointer; box-shadow:0 8px 20px rgba(0,0,0,0.45)}
+  canvas{display:block; width:100%; height:auto; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,0.6); background:linear-gradient(180deg,rgba(0,0,0,0.12),rgba(0,0,0,0.25));}
+  /* overlay */
+  #overlay{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;}
+  .panel{pointer-events:auto; background:linear-gradient(180deg, rgba(0,0,0,0.6), rgba(0,0,0,0.2)); padding:22px; border-radius:14px; text-align:center; color:var(--accent); box-shadow:0 10px 35px rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.03);}
+  .panel h2{margin:0 0 8px 0;font-size:22px}
+  .small{font-size:14px;color:rgba(255,255,255,0.85)}
+  @media (max-width:600px){
+    h1{font-size:20px}
+    .btn{padding:8px 12px}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>ALIEN MOON DODGER</h1>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div class="hud">Score: <span id="score">0</span></div>
+        <div class="hud">Level: <span id="level">1</span></div>
+        <div class="hud">Best: <span id="best">0</span></div>
+        <button id="startBtn" class="btn">START</button>
+      </div>
+    </header>
+
+    <div style="position:relative;">
+      <canvas id="game" width="960" height="600"></canvas>
+
+      <div id="overlay" style="display:flex;">
+        <div class="panel" id="panel">
+          <h2>Welcome — Alien Moon Dodger</h2>
+          <div class="small">Use ← → ↑ ↓ or WASD to move. Dodge the asteroids. Level up every 20 dodged asteroids.</div>
+          <div style="margin-top:14px"><button id="playBtn" class="btn">Play</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* Alien Moon Dodger
+   - 4-way movement (arrow keys + WASD)
+   - cratered asteroids + moon craters
+   - levels increase every 20 points (score)
+   - single-file, no assets
+*/
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+let W = canvas.width, H = canvas.height;
+function resizeCanvas(){
+  // keep internal resolution stable; canvas drawn responsively by CSS
+  W = canvas.width = 960;
+  H = canvas.height = 600;
+}
+resizeCanvas();
+
+// Game state
+let alien, asteroids, stars, moon, score, level, best, running, lastLevel;
+let keys = {};
+let spawnTimer = 0;
+let showOverlayTimeout = null;
+const SCORE_PER_LEVEL = 20;
+
+// DOM
+const scoreEl = document.getElementById('score');
+const levelEl = document.getElementById('level');
+const bestEl = document.getElementById('best');
+const overlay = document.getElementById('overlay');
+const panel = document.getElementById('panel');
+const startBtn = document.getElementById('startBtn');
+const playBtn = document.getElementById('playBtn');
+
+// load high score
+best = parseInt(localStorage.getItem('amd_best') || '0', 10);
+bestEl.textContent = best;
+
+// mouse/touch not required but keep overlay clickable
+startBtn.onclick = () => startGame();
+playBtn.onclick = () => startGame();
+
+// Input
+window.addEventListener('keydown', (e) => {
+  keys[e.key.toLowerCase()] = true;
+  // start with space if overlay shown
+  if ((e.key === ' ' || e.key === 'Spacebar') && !running) startGame();
+});
+window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+
+// Moon parameters (big circle center below canvas so it looks like horizon)
+function createMoon(){
+  // we'll compute its center so top of moon appears ~ H - 80
+  const topVisible = H - 80;
+  const r = Math.max(260, Math.round(W * 0.45)); // radius
+  const cx = W/2;
+  const cy = topVisible + r;
+  // generate craters on the visible top band
+  const craters = [];
+  const craterCount = 8;
+  for(let i=0;i<craterCount;i++){
+    const cxOffset = (Math.random()*0.9 - 0.45) * W; // across width
+    const craterX = W/2 + cxOffset;
+    const craterY = topVisible + (Math.random()*30 - 6);
+    const cr = 10 + Math.random()*28;
+    craters.push({x:craterX, y:craterY, r:cr});
+  }
+  return {cx, cy, r, topVisible, craters};
+}
+
+function resetState(){
+  alien = {
+    x: W/2 - 22,
+    y: 0, // will be set to stand on moon
+    width: 44,
+    height: 56,
+    speed: 4.2
+  };
+  moon = createMoon();
+  // place alien standing on top of moon initially
+  alien.y = moon.topVisible - alien.height - 4;
+  asteroids = [];
+  stars = [];
+  for(let i=0;i<120;i++){
+    stars.push({x:Math.random()*W, y:Math.random()*H, s: Math.random()*1.8 + 0.3, twinkle: Math.random()*Math.PI*2});
+  }
+  score = 0;
+  level = 1;
+  lastLevel = 1;
+  spawnTimer = 0;
+  running = false;
+  updateHUD();
+}
+
+// collision: rect vs circle
+function rectCircleColl(px, py, pw, ph, cx, cy, cr){
+  const closestX = Math.max(px, Math.min(cx, px+pw));
+  const closestY = Math.max(py, Math.min(cy, py+ph));
+  const dx = cx - closestX;
+  const dy = cy - closestY;
+  return (dx*dx + dy*dy) < (cr*cr);
+}
+
+// asteroid factory
+function spawnAsteroid(){
+  // size and base speed depend on level
+  const baseSize = 28 + Math.random()*50;
+  const x = Math.random()*(W - baseSize);
+  const minSpeed = 1.8 + (level-1)*0.6;
+  const speed = minSpeed + Math.random()*2.4 + (Math.random()*level*0.12);
+  const rot = Math.random()*Math.PI*2;
+  const rotSpeed = (Math.random()*0.05 + 0.01) * (Math.random()<0.5 ? -1:1) * (1 + (level-1)*0.15);
+  // crater layout for each asteroid (random small dents)
+  const craterCount = 1 + Math.floor(Math.random()*3);
+  const craters = [];
+  for(let i=0;i<craterCount;i++){
+    const cr = Math.max(4, Math.random()* (baseSize*0.25));
+    const cx = -baseSize/4 + Math.random()*(baseSize*1.0);
+    const cy = -baseSize/4 + Math.random()*(baseSize*1.0);
+    craters.push({x:cx, y:cy, r:cr});
+  }
+  asteroids.push({x, y:-baseSize, size:baseSize, speed, rotation:rot, rotSpeed, craters});
+}
+
+// HUD
+function updateHUD(){
+  scoreEl.textContent = score;
+  levelEl.textContent = level;
+  bestEl.textContent = best;
+}
+
+// level calculation & effects
+function computeLevel(){
+  const newLevel = Math.floor(score / SCORE_PER_LEVEL) + 1;
+  if(newLevel > level){
+    level = newLevel;
+    // show level popup
+    showTempPanel(`Level ${level}`, `Asteroids get faster — be careful!`);
+    // small speed boost for alien optionally
+  }
+}
+
+// small overlay popup for level-up / messages
+function showTempPanel(title, text, ms=1200){
+  panel.innerHTML = `<h2 style="font-size:28px">${title}</h2><div class="small" style="margin-top:6px">${text}</div>`;
+  overlay.style.display = 'flex';
+  // clear previous timeout
+  if(showOverlayTimeout) clearTimeout(showOverlayTimeout);
+  showOverlayTimeout = setTimeout(()=>{
+    overlay.style.display = 'none';
+    panel.innerHTML = `<h2>Welcome — Alien Moon Dodger</h2>
+      <div class="small">Use ← → ↑ ↓ or WASD to move. Dodge the asteroids. Level up every ${SCORE_PER_LEVEL} dodged asteroids.</div>
+      <div style="margin-top:14px"><button id="playBtn2" class="btn">Play</button></div>`;
+    // reattach play button in case needed
+    const pb = document.getElementById('playBtn2');
+    if(pb) pb.onclick = startGame;
+  }, ms);
+}
+
+// draw functions
+function drawStars(now){
+  ctx.fillStyle = '#ffffff';
+  for(let s of stars){
+    // twinkle
+    const t = Math.sin((now*0.002) + s.twinkle) * 0.6 + 0.4;
+    ctx.globalAlpha = Math.max(0.15, Math.min(1, t));
+    ctx.fillRect(s.x, s.y, s.s, s.s);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawMoon(){
+  // big circular moon (only top visible)
+  ctx.save();
+  ctx.fillStyle = '#bfc6cc';
+  ctx.beginPath();
+  ctx.arc(moon.cx, moon.cy, moon.r, 0, Math.PI*2);
+  ctx.fill();
+  // soft shading
+  const g = ctx.createLinearGradient(0, moon.topVisible-120, 0, H);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.25)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(moon.cx, moon.cy, moon.r, 0, Math.PI*2);
+  ctx.fill();
+
+  // draw craters (darker shallow circles on the visible band)
+  ctx.fillStyle = '#9aa0a6';
+  for(let c of moon.craters){
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y, c.r*1.1, c.r*0.7, 0, 0, Math.PI*2);
+    ctx.fill();
+    // inner darker depression
+    ctx.fillStyle = '#6e7174';
+    ctx.beginPath();
+    ctx.ellipse(c.x - c.r*0.08, c.y - c.r*0.08, c.r*0.65, c.r*0.44, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#9aa0a6';
+  }
+
+  ctx.restore();
+}
+
+function drawAlien(){
+  // simple cute alien with small antenna & boots
+  ctx.save();
+  const ax = alien.x, ay = alien.y;
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  ctx.beginPath();
+  ctx.ellipse(ax+alien.width/2, ay+alien.height + 8, alien.width*0.6, 8, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // body
+  ctx.fillStyle = '#00ff88';
+  ctx.beginPath();
+  ctx.ellipse(ax + alien.width/2, ay + alien.height*0.6, alien.width*0.45, alien.height*0.6, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // head
+  ctx.beginPath();
+  ctx.ellipse(ax + alien.width/2, ay + 12, alien.width*0.38, alien.height*0.32, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // eyes
+  ctx.fillStyle = '#001a1a';
+  ctx.beginPath();
+  ctx.ellipse(ax + alien.width*0.35, ay + 10, 6, 10, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(ax + alien.width*0.65, ay + 10, 6, 10, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // highlight eyes
+  ctx.fillStyle = '#a6fff0';
+  ctx.beginPath();
+  ctx.ellipse(ax + alien.width*0.33, ay + 8, 2, 3, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(ax + alien.width*0.63, ay + 8, 2, 3, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // antenna
+  ctx.strokeStyle = '#00ff88';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(ax + alien.width/2, ay-2);
+  ctx.lineTo(ax + alien.width/2, ay-12);
+  ctx.stroke();
+  ctx.fillStyle = '#00ffd7';
+  ctx.beginPath();
+  ctx.arc(ax + alien.width/2, ay-14, 5, 0, Math.PI*2);
+  ctx.fill();
+
+  // boots
+  ctx.fillStyle = '#013233';
+  ctx.beginPath();
+  ctx.ellipse(ax + 8, ay + alien.height - 6, 8, 6, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(ax + alien.width - 8, ay + alien.height - 6, 8, 6, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawAsteroid(a){
+  ctx.save();
+  // center & rotate
+  const cx = a.x + a.size/2;
+  const cy = a.y + a.size/2;
+  ctx.translate(cx, cy);
+  ctx.rotate(a.rotation);
+  // base irregular rock using several overlapping arcs
+  ctx.fillStyle = '#71523d';
+  ctx.beginPath();
+  // main circle
+  ctx.arc(0, 0, a.size*0.48, 0, Math.PI*2);
+  ctx.fill();
+
+  // darker shade edge
+  ctx.fillStyle = '#5a3f32';
+  ctx.beginPath();
+  ctx.ellipse(-a.size*0.12, -a.size*0.08, a.size*0.42, a.size*0.34, Math.PI*0.25, 0, Math.PI*2);
+  ctx.fill();
+
+  // craters (drawn as lighter/darker depressions)
+  for(let c of a.craters){
+    ctx.fillStyle = '#4c342b';
+    ctx.beginPath();
+    ctx.ellipse(c.x - a.size/2, c.y - a.size/2, c.r, c.r*0.7, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#977a66';
+    ctx.beginPath();
+    ctx.ellipse(c.x - a.size/2 + c.r*0.2, c.y - a.size/2 - c.r*0.12, c.r*0.6, c.r*0.42, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// Game loop & logic
+let lastTime = performance.now();
+function loop(now){
+  const dt = Math.min((now - lastTime) / 1000, 0.04);
+  lastTime = now;
+
+  if(!running) return;
+
+  // update star twinkle movement (subtle)
+  for(let s of stars) s.y += (dt*3) * (s.s*0.2); // slight downward drift
+  // reset stars
+  for(let s of stars) if(s.y > H) s.y = 0;
+
+  // movement: arrow keys or WASD
+  let mvX = 0, mvY = 0;
+  if(keys['arrowleft'] || keys['a']) mvX -= 1;
+  if(keys['arrowright'] || keys['d']) mvX += 1;
+  if(keys['arrowup'] || keys['w']) mvY -= 1;
+  if(keys['arrowdown'] || keys['s']) mvY += 1;
+
+  // apply movement with speed scaling
+  alien.x += mvX * alien.speed * (1 + (level-1)*0.04);
+  alien.y += mvY * alien.speed * (1 + (level-1)*0.04);
+
+  // bounds: top limit and moon top
+  const topLimit = 30;
+  const bottomLimit = moon.topVisible - alien.height - 4;
+  if(alien.x < 8) alien.x = 8;
+  if(alien.x + alien.width > W-8) alien.x = W - alien.width - 8;
+  if(alien.y < topLimit) alien.y = topLimit;
+  if(alien.y > bottomLimit) alien.y = bottomLimit;
+
+  // spawn logic (spawn interval becomes shorter with level)
+  spawnTimer -= dt * 1000;
+  const baseSpawn = Math.max(320, 900 - (level-1)*80); // ms
+  if(spawnTimer <= 0){
+    // spawn one or sometimes two asteroids
+    spawnAsteroid();
+    if(Math.random() < Math.min(0.25, level*0.03)) spawnAsteroid();
+    spawnTimer = baseSpawn * (0.85 + Math.random()*0.5);
+  }
+
+  // update asteroids
+  for(let i = asteroids.length - 1; i >= 0; i--){
+    const a = asteroids[i];
+    a.y += a.speed * (1 + (level-1)*0.08) * (dt * 60); // normalized to 60fps notion
+    a.rotation += a.rotSpeed * (1 + (level-1)*0.08);
+
+    // collision: check with circle center
+    const acx = a.x + a.size/2;
+    const acy = a.y + a.size/2;
+    if(rectCircleColl(alien.x, alien.y, alien.width, alien.height, acx, acy, a.size*0.45)){
+      // game over
+      running = false;
+      // show game over panel
+      if(score > best){ best = score; localStorage.setItem('amd_best', String(best)); }
+      panel.innerHTML = `<h2>Game Over</h2><div class="small">You scored ${score} — Level ${level}</div>
+        <div style="margin-top:12px"><button id="again" class="btn">Play Again</button></div>`;
+      overlay.style.display = 'flex';
+      document.getElementById('again').onclick = () => { overlay.style.display='none'; startGame(); };
+      updateHUD();
+      return;
+    }
+
+    // off-screen => increment score
+    if(a.y - a.size > H + 40){
+      asteroids.splice(i,1);
+      score++;
+      computeLevel();
+      updateHUD();
+    }
+  }
+
+  // draw
+  ctx.clearRect(0,0,W,H);
+  drawStars(now);
+  drawMoon();
+  // draw asteroids under alien for depth
+  for(let a of asteroids) drawAsteroid(a);
+  drawAlien();
+
+  // HUD small markers (we draw nothing here because HUD is DOM)
+  requestAnimationFrame(loop);
+}
+
+// start game
+function startGame(){
+  resetState();
+  running = true;
+  overlay.style.display = 'none';
+  lastTime = performance.now();
+  requestAnimationFrame(loop);
+  updateHUD();
+}
+
+// initialize & show overlay
+resetState();
+overlay.style.display = 'flex';
+panel.innerHTML = `<h2>Welcome — Alien Moon Dodger</h2>
+  <div class="small">Use ← → ↑ ↓ or WASD to move. Dodge the asteroids. Level up every ${SCORE_PER_LEVEL} dodged asteroids.</div>
+  <div style="margin-top:14px"><button id="playBtn2" class="btn">Play</button></div>`;
+document.getElementById('playBtn2').onclick = startGame;
+
+// expose a small helper for resizing if desired
+window.addEventListener('resize', () => {
+  // we keep canvas fixed resolution so no need to change; you can adapt if responsive needed
+});
+</script>
+</body>
+</html>
