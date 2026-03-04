@@ -1,0 +1,280 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Alien Moon Defender Deluxe</title>
+<style>
+body{
+  margin:0;
+  background:#0b1e3a;
+  font-family:Arial, sans-serif;
+  color:white;
+  text-align:center;
+  overflow:hidden;
+}
+canvas{
+  display:block;
+  margin:0 auto;
+  background:#1f3c73;
+}
+#menu{
+  position:absolute;
+  width:100%;
+  top:30%;
+}
+button{
+  padding:12px 25px;
+  margin:8px;
+  font-size:18px;
+  border:none;
+  border-radius:10px;
+  cursor:pointer;
+}
+#gameOver{
+  position:absolute;
+  top:40%;
+  width:100%;
+  font-size:48px;
+  display:none;
+}
+</style>
+</head>
+<body>
+
+<div id="menu">
+  <h1>ALIEN MOON DEFENDER</h1>
+  <button onclick="startGame('easy')">Easy</button>
+  <button onclick="startGame('normal')">Normal</button>
+  <button onclick="startGame('hard')">Hard</button>
+  <p>High Score: <span id="highScore">0</span></p>
+</div>
+
+<div id="gameOver">GAME OVER<br><button onclick="location.reload()">Restart</button></div>
+
+<canvas id="game" width="900" height="600"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let alien, asteroids, bullets, stars, explosions, boss;
+let level=1, score=0, health=3;
+let gameRunning=false, difficultyMultiplier=1;
+let keys={};
+
+let highScore = localStorage.getItem("alienHighScore") || 0;
+document.getElementById("highScore").textContent = highScore;
+
+document.addEventListener("keydown",e=>{
+  keys[e.key]=true;
+  if(e.key===" ") shoot();
+});
+document.addEventListener("keyup",e=> keys[e.key]=false);
+
+canvas.addEventListener("touchmove",e=>{
+  let rect = canvas.getBoundingClientRect();
+  alien.x = e.touches[0].clientX - rect.left - alien.w/2;
+});
+
+function startGame(diff){
+  document.getElementById("menu").style.display="none";
+  gameRunning=true;
+  level=1; score=0; health=3;
+
+  if(diff==="easy") difficultyMultiplier=0.8;
+  if(diff==="normal") difficultyMultiplier=1;
+  if(diff==="hard") difficultyMultiplier=1.5;
+
+  alien={x:430,y:450,w:40,h:70};
+  asteroids=[]; bullets=[]; explosions=[];
+  stars=createStars();
+  boss=null;
+
+  requestAnimationFrame(loop);
+}
+
+function createStars(){
+  let s=[];
+  for(let i=0;i<120;i++){
+    s.push({x:Math.random()*900,y:Math.random()*600,size:Math.random()*2});
+  }
+  return s;
+}
+
+function drawStars(){
+  ctx.fillStyle="white";
+  stars.forEach(st=>{
+    ctx.fillRect(st.x,st.y,st.size,st.size);
+    st.y+=0.5;
+    if(st.y>600) st.y=0;
+  });
+}
+
+function shoot(){
+  if(!gameRunning) return;
+  bullets.push({x:alien.x+alien.w/2,y:alien.y});
+}
+
+function spawnAsteroid(){
+  let size=40+Math.random()*40;
+  asteroids.push({
+    x:Math.random()*850,
+    y:-size,
+    size,
+    speed:(2+level*0.5)*difficultyMultiplier
+  });
+}
+
+function spawnBoss(){
+  boss={x:250,y:60,w:400,h:120,health:30};
+}
+
+function drawAlien(){
+  ctx.fillStyle="#7CFC00";
+  ctx.beginPath();
+  ctx.ellipse(alien.x+20,alien.y+25,25,30,0,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle="#9BFF33";
+  ctx.beginPath();
+  ctx.ellipse(alien.x+20,alien.y,30,25,0,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle="black";
+  ctx.beginPath();
+  ctx.ellipse(alien.x+10,alien.y-5,8,12,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(alien.x+30,alien.y-5,8,12,0,0,Math.PI*2);
+  ctx.fill();
+}
+
+function drawMoon(){
+  ctx.fillStyle="#d9d9d9";
+  ctx.beginPath();
+  ctx.moveTo(0,520);
+  ctx.quadraticCurveTo(450,470,900,520);
+  ctx.lineTo(900,600);
+  ctx.lineTo(0,600);
+  ctx.fill();
+
+  for(let i=0;i<6;i++){
+    ctx.fillStyle="#bfbfbf";
+    ctx.beginPath();
+    ctx.arc(100+i*140,540,35+Math.random()*10,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function drawAsteroid(a){
+  ctx.fillStyle="#8b6f47";
+  ctx.beginPath();
+  ctx.moveTo(a.x,a.y);
+  for(let i=0;i<6;i++){
+    ctx.lineTo(
+      a.x+Math.cos(i*2*Math.PI/6)*a.size/2 + Math.random()*10,
+      a.y+Math.sin(i*2*Math.PI/6)*a.size/2 + Math.random()*10
+    );
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function explosion(x,y){
+  explosions.push({x,y,r:10});
+}
+
+function loop(){
+if(!gameRunning) return;
+
+ctx.clearRect(0,0,900,600);
+drawStars();
+drawMoon();
+
+if(keys["ArrowLeft"]) alien.x-=5;
+if(keys["ArrowRight"]) alien.x+=5;
+alien.x=Math.max(0,Math.min(860,alien.x));
+
+drawAlien();
+
+if(Math.random()<0.03*difficultyMultiplier) spawnAsteroid();
+
+asteroids.forEach((a,i)=>{
+  a.y+=a.speed;
+  drawAsteroid(a);
+
+  if(a.y>600){
+    asteroids.splice(i,1);
+    score++;
+  }
+
+  if(a.x<alien.x+40 && a.x+a.size>alien.x &&
+     a.y<alien.y+70 && a.y+a.size>alien.y){
+       health--;
+       explosion(alien.x,alien.y);
+       asteroids.splice(i,1);
+       if(health<=0) endGame();
+  }
+});
+
+bullets.forEach((b,i)=>{
+  b.y-=8;
+  ctx.fillStyle="yellow";
+  ctx.fillRect(b.x,b.y,4,12);
+
+  asteroids.forEach((a,j)=>{
+    if(b.x>a.x && b.x<a.x+a.size &&
+       b.y>a.y && b.y<a.y+a.size){
+         explosion(a.x,a.y);
+         asteroids.splice(j,1);
+         bullets.splice(i,1);
+         score+=5;
+    }
+  });
+});
+
+explosions.forEach((e,i)=>{
+  ctx.fillStyle="orange";
+  ctx.beginPath();
+  ctx.arc(e.x,e.y,e.r,0,Math.PI*2);
+  ctx.fill();
+  e.r+=2;
+  if(e.r>40) explosions.splice(i,1);
+});
+
+if(score>0 && score%40===0 && !boss) spawnBoss();
+
+if(boss){
+  ctx.fillStyle="purple";
+  ctx.fillRect(boss.x,boss.y,boss.w,boss.h);
+
+  bullets.forEach((b,i)=>{
+    if(b.x>boss.x && b.x<boss.x+boss.w &&
+       b.y>boss.y && b.y<boss.y+boss.h){
+         boss.health--;
+         bullets.splice(i,1);
+         if(boss.health<=0){
+           explosion(boss.x+200,boss.y+60);
+           boss=null;
+           level++;
+         }
+    }
+  });
+}
+
+ctx.fillStyle="white";
+ctx.fillText("Score: "+score+"  Health: "+health+"  Level: "+level,20,30);
+
+requestAnimationFrame(loop);
+}
+
+function endGame(){
+  gameRunning=false;
+  document.getElementById("gameOver").style.display="block";
+  if(score>highScore){
+    localStorage.setItem("alienHighScore",score);
+  }
+}
+</script>
+</body>
+</html>
